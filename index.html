@@ -1362,6 +1362,7 @@
                 <div class="radar-container">
                     <canvas id="radar-canvas" width="89" height="89"></canvas>
                 </div>
+                <button id="btn-touch-weapon" class="touch-btn-pause" title="Silah Değiştir">🔄</button>
                 <button id="btn-touch-pause" class="touch-btn-pause" title="Duraklat">⏸️</button>
             </div>
         </div>
@@ -1420,8 +1421,8 @@
                 <div class="ammo-card">
                     <div class="ammo-icon">⚡</div>
                     <div class="ammo-info">
-                        <span class="ammo-title">Mühimmat</span>
-                        <span class="ammo-count">∞</span>
+                        <span class="ammo-title" id="ammo-title-el">Mühimmat · Tüfek</span>
+                        <span class="ammo-count" id="ammo-count-el">∞</span>
                     </div>
                 </div>
             </div>
@@ -4636,6 +4637,8 @@
 
         const DEFAULT_GUN_POS = new THREE.Vector3(0.26, -0.25, -0.52);
         const AIM_GUN_POS = new THREE.Vector3(0.0, -0.185, -0.40);
+        const MG_HIP_POS = new THREE.Vector3(0.28, -0.27, -0.50);
+        const MG_AIM_POS = new THREE.Vector3(0.0, -0.25, -0.42);
         let currentGunOffset = DEFAULT_GUN_POS.clone();
         let isAiming = false;
         gunGroup.position.copy(DEFAULT_GUN_POS);
@@ -4712,6 +4715,119 @@
 
         let gunRecoilZ = 0;
         let gunRecoilRotX = 0;
+
+        /* ==========================================================================
+           🔫 MİNİGUN (2. silah) — saniyede 20 mermi, mermi başı 70 hasar, sınırlı mühimmat
+           - Fare tekerleği (PC) veya sağ üstteki 🔄 düğmesi (mobil) ile tüfek ⇄ minigun
+           - Her 7. roundda +700 mermi (7, 14, 21...)
+           ========================================================================== */
+        const MINIGUN_FIRE_INTERVAL = 1 / 20;  // 20 mermi/sn
+        const MINIGUN_DAMAGE = 70;
+        const MINIGUN_START_AMMO = 700;        // başlangıç mermisi
+        const MINIGUN_AMMO_PER_REWARD = 700;
+        const MINIGUN_REWARD_EVERY = 7;
+        let currentWeapon = 'rifle';
+        let minigunAmmo = MINIGUN_START_AMMO;
+        let minigunSpin = 0;
+
+        const rifleParts = [receiver, barrel, compensator, mag, grip, sightBase, sightDot];
+        const minigunGroup = new THREE.Group();
+        minigunGroup.visible = false;
+        gunGroup.add(minigunGroup);
+        const mgSteel = new THREE.MeshStandardMaterial({ color: 0x2b3038, roughness: 0.3, metalness: 0.9 });
+        const mgDark = new THREE.MeshStandardMaterial({ color: 0x12151a, roughness: 0.5, metalness: 0.7 });
+        const mgBrass = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.35, metalness: 0.8 });
+        const mgAccent = new THREE.MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5, metalness: 0.4 });
+        {
+            const add = (geo, mat, x, y, z, rx = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rx; minigunGroup.add(m); return m; };
+            add(new THREE.BoxGeometry(0.15, 0.15, 0.40), mgDark, 0, 0, 0.02);                 // motor gövdesi
+            add(new THREE.BoxGeometry(0.17, 0.05, 0.30), mgAccent, 0, 0.095, 0.02);            // kırmızı şerit
+            add(new THREE.CylinderGeometry(0.075, 0.075, 0.14, 16), mgSteel, 0, 0, -0.26, Math.PI / 2); // namlu yatağı
+            add(new THREE.BoxGeometry(0.05, 0.16, 0.08), mgDark, 0, -0.14, 0.12, -0.3);       // kabza
+            add(new THREE.BoxGeometry(0.03, 0.03, 0.22), mgSteel, 0, 0.14, -0.04);             // taşıma sapı
+            // Fişek kutusu + fişek kemeri
+            add(new THREE.BoxGeometry(0.11, 0.13, 0.16), mgDark, -0.13, -0.06, 0.08);
+            for (let i = 0; i < 6; i++) add(new THREE.CylinderGeometry(0.014, 0.014, 0.06, 8), mgBrass, -0.085 + i * -0.008, -0.01 - i * 0.005, 0.0 + i * 0.012, Math.PI / 2);
+            // Dönen namlu demeti (6 namlu)
+            minigunBarrels = new THREE.Group();
+            minigunBarrels.position.set(0, 0, -0.34);
+            for (let i = 0; i < 6; i++) {
+                const a = (i / 6) * Math.PI * 2;
+                const b = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0115, 0.50, 8), mgSteel);
+                b.rotation.x = Math.PI / 2;
+                b.position.set(Math.cos(a) * 0.045, Math.sin(a) * 0.045, -0.20);
+                minigunBarrels.add(b);
+            }
+            [-0.05, -0.28, -0.44].forEach(zz => { const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.066, 0.066, 0.025, 14), mgDark); ring.rotation.x = Math.PI / 2; ring.position.z = zz; minigunBarrels.add(ring); });
+            minigunGroup.add(minigunBarrels);
+        }
+        var minigunBarrels;
+
+        function updateWeaponHUD() {
+            const t = document.getElementById('ammo-title-el'), c = document.getElementById('ammo-count-el');
+            if (!t || !c) return;
+            if (currentWeapon === 'minigun') {
+                t.textContent = 'Minigun · Mermi';
+                c.textContent = String(minigunAmmo);
+                c.style.color = minigunAmmo <= 100 ? '#ff4455' : '';
+            } else {
+                t.textContent = 'Mühimmat · Tüfek';
+                c.textContent = '∞';
+                c.style.color = '';
+            }
+            const bt = document.getElementById('btn-touch-weapon');
+            if (bt) bt.textContent = currentWeapon === 'minigun' ? '🔫' : '🔄';
+        }
+        function setWeapon(w, silent) {
+            if (w === 'minigun' && minigunAmmo <= 0) {
+                if (!silent) showAnnouncement(`🔫 Minigun mermisi yok — her ${MINIGUN_REWARD_EVERY}. roundda +${MINIGUN_AMMO_PER_REWARD} mermi`);
+                return false;
+            }
+            currentWeapon = w;
+            const mg = w === 'minigun';
+            rifleParts.forEach(m => m.visible = !mg);
+            minigunGroup.visible = mg;
+            muzzleFlash.position.z = mg ? -0.92 : -0.58;
+            muzzleLight.position.z = mg ? -0.95 : -0.6;
+            muzzleFlash.scale.setScalar(mg ? 1.5 : 1);
+            updateWeaponHUD();
+            if (!silent) { sfx.playScope(true); showAnnouncement(mg ? '🔫 MİNİGUN' : '🔫 TÜFEK'); }
+            return true;
+        }
+        function toggleWeapon() {
+            if (gameState !== 'playing' || isDriving) return;
+            setWeapon(currentWeapon === 'rifle' ? 'minigun' : 'rifle');
+        }
+        // Minigun atış sesi: kısa, hafif, ard arda çalmaya uygun
+        let _mgNoiseBuf = null;
+        function playMinigunShot() {
+            const ctx = sfx.ctx; if (!ctx) return;
+            const now = ctx.currentTime;
+            if (!_mgNoiseBuf) { _mgNoiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.045), ctx.sampleRate); const d = _mgNoiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+            const n = ctx.createBufferSource(); n.buffer = _mgNoiseBuf;
+            const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 0.8;
+            const g = ctx.createGain(); g.gain.setValueAtTime(0.16, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+            n.connect(f); f.connect(g); g.connect(sfx.master); n.start(now);
+            const o = ctx.createOscillator(); o.type = 'square'; o.frequency.setValueAtTime(170, now); o.frequency.exponentialRampToValueAtTime(60, now + 0.05);
+            const og = ctx.createGain(); og.gain.setValueAtTime(0.09, now); og.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+            o.connect(og); og.connect(sfx.master); o.start(now); o.stop(now + 0.055);
+        }
+        // Fare tekerleği: silah değiştir (yalnızca oyun içinde, fare kilitliyken)
+        let _lastWheel = 0;
+        window.addEventListener('wheel', (e) => {
+            if (gameState !== 'playing' || document.pointerLockElement !== canvas) return;
+            const t = performance.now(); if (t - _lastWheel < 180) return; _lastWheel = t;
+            toggleWeapon();
+        }, { passive: true });
+        (function () {
+            const b = document.getElementById('btn-touch-weapon');
+            if (!b) return;
+            const fire = (e) => { e.preventDefault(); e.stopPropagation(); toggleWeapon(); };
+            b.addEventListener('touchstart', fire, { passive: false });
+            b.addEventListener('click', fire);
+        })();
+        updateWeaponHUD();
+
 
         /* ==========================================================================
            HUMANOID ENEMY BUILDER (WITH USER'S PHOTO FACE)
@@ -8009,12 +8125,20 @@
 
         function shootWeapon() {
             if (shootCooldown > 0 || gameState !== 'playing' || isDriving) return;
-            shootCooldown = 0.11;
-
-            sfx.playShoot();
-
-            gunRecoilZ = 0.09;
-            gunRecoilRotX = 0.14;
+            const isMG = currentWeapon === 'minigun';
+            if (isMG) {
+                if (minigunAmmo <= 0) { setWeapon('rifle', true); showAnnouncement('🔫 Minigun mermisi bitti — tüfeğe geçildi'); return; }
+                shootCooldown = Math.max(shootCooldown, -0.1) + MINIGUN_FIRE_INTERVAL;
+                minigunAmmo--;
+                updateWeaponHUD();
+                playMinigunShot();
+                gunRecoilZ = 0.035; gunRecoilRotX = 0.05;
+            } else {
+                shootCooldown = 0.11;
+                sfx.playShoot();
+                gunRecoilZ = 0.09;
+                gunRecoilRotX = 0.14;
+            }
 
             muzzleFlashMat.opacity = 1;
             muzzleLight.intensity = 4;
@@ -8057,7 +8181,7 @@
                 const isHead = hitTarget.userData ? hitTarget.userData.isHead : false;
 
                 if (enemy) {
-                    const damage = isHead ? 150 : 45;
+                    const damage = isHead ? 150 : (currentWeapon === 'minigun' ? MINIGUN_DAMAGE : 45);
                     enemy.takeDamage(damage, isHead, hit.point, hitTarget.userData.part);
                 }
                 createBulletTracer(muzzleWorldPos, hit.point);
@@ -8707,6 +8831,10 @@
             roundArcherTimer = 6 + Math.random() * 6;
             roundOverlay(null);
             let msg = `ROUND ${n} BAŞLADI!`;
+            if (n % MINIGUN_REWARD_EVERY === 0) {
+                minigunAmmo += MINIGUN_AMMO_PER_REWARD; updateWeaponHUD();
+                msg += ` 🔫 +${MINIGUN_AMMO_PER_REWARD} MİNİGUN MERMİSİ!`;
+            }
             if (n === 2) msg += ' Saldırganlar artık yerden de çıkıyor!';
             if (n === 3) msg += ' Süvariler geliyor!';
             showAnnouncement(msg);
@@ -8876,7 +9004,8 @@
             gunRecoilRotX = THREE.MathUtils.lerp(gunRecoilRotX, 0, delta * 15);
 
             // Dürbün (ADS) konumuna yumuşak geçiş
-            const targetGunBase = isAiming ? AIM_GUN_POS : DEFAULT_GUN_POS;
+            const mgNow = currentWeapon === 'minigun';
+            const targetGunBase = mgNow ? (isAiming ? MG_AIM_POS : MG_HIP_POS) : (isAiming ? AIM_GUN_POS : DEFAULT_GUN_POS);
             currentGunOffset.lerp(targetGunBase, delta * 18);
 
             const isMoving = keys.forward || keys.backward || keys.left || keys.right || (isMobileTouchMode && (touchMoveVector.x !== 0 || touchMoveVector.y !== 0));
@@ -8918,9 +9047,15 @@
                 document.getElementById('timer-val').textContent = `${mins}:${secs}`;
 
                 if (invulnerableTimer > 0) invulnerableTimer -= delta;
-                if (shootCooldown > 0) shootCooldown -= delta;
+                shootCooldown -= delta; if (shootCooldown < -0.1) shootCooldown = -0.1;
 
-                if (isShooting) shootWeapon();
+                if (isShooting) { let guard = 0; do { shootWeapon(); } while (currentWeapon === 'minigun' && isShooting && shootCooldown <= 0 && ++guard < 3); }
+                // Minigun namlusu: ateş ederken hızla döner, bırakınca yavaşlar
+                {
+                    const want = (currentWeapon === 'minigun' && isShooting && minigunAmmo > 0) ? 42 : 0;
+                    minigunSpin += (want - minigunSpin) * Math.min(1, delta * (want ? 9 : 3));
+                    if (minigunBarrels) minigunBarrels.rotation.z += minigunSpin * delta;
+                }
 
                 updatePlayerMovement(delta);
                 updateCarPhysics(delta);
@@ -9083,6 +9218,10 @@
             }
             activeGrenades.length = 0;
             updateGrenadeHUD();
+
+            // Silahları sıfırla
+            minigunAmmo = MINIGUN_START_AMMO; minigunSpin = 0;
+            setWeapon('rifle', true);
 
             // Baltalı yardımcıyı sıfırla
             hasCalledAxeAlly = false;
