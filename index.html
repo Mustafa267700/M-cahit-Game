@@ -165,7 +165,7 @@
             width: 100%;
             height: 100%;
             pointer-events: none;
-            z-index: 15;
+            z-index: 19; /* dokunmatik bakış alanının (18) üstünde: sağ üst butonlar tıklanabilsin */
             padding: 16px 24px;
             display: flex;
             flex-direction: column;
@@ -336,6 +336,9 @@
         }
         body.mobile-touch-mode .touch-btn-pause {
             display: flex !important;
+            pointer-events: auto !important;
+            position: relative;
+            z-index: 80;
         }
 
         #announcement-banner {
@@ -2482,6 +2485,7 @@
         let currentArenaSize = 140;
         let currentHalfArena = 70;
 
+        let builtMapKey = null; // en son kurulan haritanın anahtarı (görünen ad ile karıştırılmasın)
         let selectedMap = 'default'; // 'default', 'winter', 'summer', 'forest', 'autumn', 'city'
         let currentMapName = 'Siber Arena';
 
@@ -2527,7 +2531,7 @@
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
         renderer.setSize(window.innerWidth, window.innerHeight);
         const GFX_LOW = isMobileUA || window.matchMedia("(pointer: coarse)").matches;
-        const GFX_DPR_CAP = GFX_LOW ? 1.25 : 2; // 3x/2x ekranlarda piksel sayısını düşürür (ısınmanın ana nedeni)
+        const GFX_DPR_CAP = 2; // mobilde de net görüntü (eskiden 1.25 idi, bulanıktı) // 3x/2x ekranlarda piksel sayısını düşürür (ısınmanın ana nedeni)
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, GFX_DPR_CAP));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -5072,7 +5076,7 @@
             const hitboxes = [];
             for (const e of alive) {
                 if (e.hitboxes) { for (const hb of e.hitboxes) { if (hb.userData.part === 'horse' && !e.horseAlive) continue; hitboxes.push(hb); } }
-                else { hitboxes.push(e.parts.head); hitboxes.push(e.parts.torso); }
+                else { hitboxes.push(e.parts.head); hitboxes.push(e.parts.torso); if (e.limbBoxes) e.limbBoxes.forEach(m => hitboxes.push(m)); }
             }
             let primary = null;
             const ix = raycaster.intersectObjects(hitboxes);
@@ -5277,6 +5281,37 @@
             });
         }
 
+        // 🩸 Kurşun deliği: ortada küçük koyu delik, çevresinde taze kan lekesi ve sıçrayan damlalar
+        let _bloodHoleTex = null;
+        function getBloodHoleTex() {
+            if (_bloodHoleTex) return _bloodHoleTex;
+            const S = 128, c = document.createElement('canvas'); c.width = c.height = S;
+            const g = c.getContext('2d');
+            g.translate(S / 2, S / 2);
+            // geniş, yumuşak kan halesi (kenarları damarlı/düzensiz)
+            const halo = g.createRadialGradient(0, 0, 4, 0, 0, 50);
+            halo.addColorStop(0, 'rgba(150,6,12,0.95)'); halo.addColorStop(0.45, 'rgba(165,8,14,0.85)'); halo.addColorStop(0.8, 'rgba(120,4,10,0.45)'); halo.addColorStop(1, 'rgba(90,0,6,0)');
+            g.fillStyle = halo; g.beginPath();
+            for (let i = 0; i <= 28; i++) { const a = i / 28 * Math.PI * 2, r = 36 + Math.random() * 14; i ? g.lineTo(Math.cos(a) * r, Math.sin(a) * r) : g.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+            g.closePath(); g.fill();
+            // sıçrayan damlalar ve akıntı çizgileri
+            for (let i = 0; i < 22; i++) {
+                const a = Math.random() * Math.PI * 2, d = 30 + Math.random() * 30, r = 1.2 + Math.random() * 3.4;
+                g.fillStyle = `rgba(${130 + Math.random() * 40 | 0},5,12,${0.7 + Math.random() * 0.3})`;
+                g.beginPath(); g.arc(Math.cos(a) * d, Math.sin(a) * d, r, 0, Math.PI * 2); g.fill();
+                g.strokeStyle = 'rgba(140,6,12,0.55)'; g.lineWidth = r * 0.7; g.beginPath(); g.moveTo(Math.cos(a) * (d - 14), Math.sin(a) * (d - 14)); g.lineTo(Math.cos(a) * d, Math.sin(a) * d); g.stroke();
+            }
+            // akan kan damlası (aşağı doğru)
+            const dg = g.createLinearGradient(0, 0, 0, 52); dg.addColorStop(0, 'rgba(150,6,12,0.9)'); dg.addColorStop(1, 'rgba(110,0,8,0.2)');
+            g.fillStyle = dg; g.fillRect(-3, 0, 6, 34 + Math.random() * 18);
+            // asıl delik: koyu kırmızı-siyah çekirdek + parlak kan kenarı
+            g.fillStyle = 'rgba(190,14,20,0.95)'; g.beginPath(); g.arc(0, 0, 11, 0, Math.PI * 2); g.fill();
+            const core = g.createRadialGradient(0, 0, 0, 0, 0, 8); core.addColorStop(0, 'rgba(12,0,2,1)'); core.addColorStop(0.75, 'rgba(30,0,4,1)'); core.addColorStop(1, 'rgba(60,0,6,0.9)');
+            g.fillStyle = core; g.beginPath(); g.arc(0, 0, 7.5, 0, Math.PI * 2); g.fill();
+            _bloodHoleTex = new THREE.CanvasTexture(c);
+            return _bloodHoleTex;
+        }
+
         function spawnCollapsingCorpse(enemyMesh, hitPoint, wasHeadshot, withHole = true) {
             // Kurşunla vurulan düşman parçalanmaz, cesedi doğal biçimde yere yığılır
             const group = enemyMesh;
@@ -5284,8 +5319,8 @@
 
             // Kurşun Giriş İzi: yalnızca kurşunla ölümde, merminin GERÇEKTEN çarptığı noktada açılır
             if (withHole) {
-                const holeMat = new THREE.MeshBasicMaterial({ color: 0x150303, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-                const bulletHole = new THREE.Mesh(new THREE.CircleGeometry(0.065, 10), holeMat);
+                const holeMat = new THREE.MeshBasicMaterial({ map: getBloodHoleTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+                const bulletHole = new THREE.Mesh(new THREE.PlaneGeometry(0.40, 0.40), holeMat);
                 let placed = false;
                 if (hitPoint && hitPoint.isVector3) {
                     group.updateMatrixWorld(true);
@@ -5303,6 +5338,7 @@
                                 const nL = group.worldToLocal(h.point.clone().add(nW)).sub(pL).normalize();
                                 bulletHole.position.copy(pL).addScaledVector(nL, 0.012);
                                 bulletHole.lookAt(bulletHole.position.clone().add(nL));
+                                bulletHole.rotateZ(Math.random() * Math.PI * 2);
                                 placed = true;
                             }
                         }
@@ -6487,8 +6523,17 @@
                 this.aerialDischargeCount = 0;
                 this.hasDealtDamageThisSlash = false;
 
-                // Süpermen tarzı delip geçme (her 7 normal hamlede bir)
+                // Uçarak saldırı (her 3 kılıç hamlesinde bir, 15 sn sürer)
                 this.normalSlashes = 0;
+                this.flyTimer = 0;
+                this.flyPhase = 'rise';
+                this.flyPhaseT = 0;
+                this.flyTarget = null;
+                this.chainKills = 0;
+                this.chainLeft = 0;
+                this.electricAura = 0; // elektrik darbesi sonrası 7 sn vücut dalgalanması
+                this.auraArcT = 0;
+                this._tv = new THREE.Vector3();
                 this.pierceTarget = null;
                 this.pierceDir = new THREE.Vector3(0, 0, 1);
                 this.pierceStart = new THREE.Vector3();
@@ -6646,6 +6691,32 @@
                 this.blendPose(drive.pose, drive.rate, delta);
                 this.applyPose();
                 this.animateCape(drive.capeAmp, delta);
+                this.updateAura(delta);
+            }
+
+            // Elektrik darbesinden sonra 7 sn boyunca vücutta dolaşan elektrik dalgalanmaları
+            updateAura(delta) {
+                if (this.electricAura <= 0) return;
+                this.electricAura -= delta;
+                this.auraArcT -= delta;
+                const fade = Math.min(1, Math.max(0, this.electricAura) / 1.0);
+                if (this.auraArcT > 0) return;
+                this.auraArcT = 0.05 + Math.random() * 0.05;
+                const c = this._tv;
+                this.parts.tiltPivot.getWorldPosition(c);
+                const n = fade > 0.5 ? 2 : 1;
+                for (let i = 0; i < n; i++) {
+                    if (Math.random() > 0.35 + 0.65 * fade) continue;
+                    const a = Math.random() * Math.PI * 2;
+                    const r = 0.45 + Math.random() * 0.5;
+                    const y0 = c.y - 0.8 + Math.random() * 2.0;
+                    const pA = new THREE.Vector3(c.x + Math.cos(a) * r, y0, c.z + Math.sin(a) * r);
+                    const a2 = a + (Math.random() - 0.5) * 1.4;
+                    const pB = new THREE.Vector3(c.x + Math.cos(a2) * (r + 0.25), y0 + (Math.random() - 0.5) * 1.1, c.z + Math.sin(a2) * (r + 0.25));
+                    createLightningBolt(pA, pB, { width: 0.035, life: 0.1, branches: 1, levels: 3, disp: 0.18, glow: false, flash: false, ring: false });
+                }
+                if (Math.random() < 0.5 * fade) createSparks(new THREE.Vector3(c.x, c.y + Math.random() * 1.2 - 0.4, c.z), 0x66f0ff, 2);
+                if (this.electricAura <= 0) this.electricAura = 0;
             }
 
             think(delta) {
@@ -6819,12 +6890,136 @@
                         if (this.mesh.position.y <= 0.1) {
                             this.mesh.position.y = 0;
                             this.state = 'combat';
+                            this.electricAura = 7.0;
                         }
                         return { pose: P.ready, rate: 8, capeAmp: 0.3 };
                     }
                 }
 
-                // 5b. SÜPERMEN TARZI UÇARAK DELİP GEÇME (her 7 normal hamlede bir)
+                // 5a. UÇARAK SALDIRI (15 sn): bazen havaya yükselip dalış, bazen düşmanları art arda delip geçme
+                if (this.state === 'fly_assault' || this.state === 'fly_land') {
+                    const pos = this.mesh.position;
+                    const lim = currentHalfArena - 3;
+                    const killAt = (cx, cz, rad, spark) => {
+                        let k = 0;
+                        for (let e of enemies) {
+                            if (e.isDead || e.state === 'falling') continue;
+                            if (Math.hypot(e.mesh.position.x - cx, e.mesh.position.z - cz) < rad) {
+                                e.die(true, false, 'sword', e.mesh.position.clone());
+                                createSparks(e.mesh.position.clone().add(new THREE.Vector3(0, 1.3, 0)), 0x00e5ff, spark);
+                                k++;
+                            }
+                        }
+                        return k;
+                    };
+                    const nearest = (excl) => {
+                        let best = null, md = Infinity;
+                        for (let e of aliveEnemies) {
+                            if (e === excl) continue;
+                            const d = Math.hypot(e.mesh.position.x - pos.x, e.mesh.position.z - pos.z);
+                            if (d < md) { md = d; best = e; }
+                        }
+                        return best;
+                    };
+
+                    if (this.state === 'fly_land') {
+                        pos.y = THREE.MathUtils.lerp(pos.y, 0, 1 - Math.exp(-8 * delta));
+                        if (pos.y <= 0.1) {
+                            pos.y = 0;
+                            this.state = 'combat';
+                            this.attackCooldown = 0.4;
+                        }
+                        return { pose: P.ready, rate: 8, capeAmp: 0.3 };
+                    }
+
+                    this.flyTimer -= delta;
+                    if (this.flyTimer <= 0 || aliveEnemies.length === 0) {
+                        this.state = 'fly_land';
+                        this.parts.bladeMat.emissiveIntensity = 0.4;
+                        return { pose: P.ready, rate: 8, capeAmp: 0.3 };
+                    }
+                    this.parts.bladeMat.emissiveIntensity = 3.5;
+                    const tipPos = new THREE.Vector3();
+                    this.parts.swordTip.getWorldPosition(tipPos);
+                    createSparks(tipPos, 0x00e5ff, 2);
+
+                    const nextPhase = () => {
+                        this.flyTarget = null;
+                        if (Math.random() < 0.5) { this.flyPhase = 'rise'; this.flyPhaseT = 0; }
+                        else { this.flyPhase = 'chain'; this.flyPhaseT = 3.5; this.chainKills = 0; this.chainLeft = 3 + Math.floor(Math.random() * 3); }
+                    };
+
+                    // Havaya yüksel, hedefe kilitlen
+                    if (this.flyPhase === 'rise') {
+                        this.flyPhaseT += delta;
+                        pos.y = THREE.MathUtils.lerp(pos.y, 11, 1 - Math.exp(-6 * delta));
+                        const t = nearest(null);
+                        if (t) {
+                            this.mesh.rotation.y = allyLerpAngle(this.mesh.rotation.y, Math.atan2(t.mesh.position.x - pos.x, t.mesh.position.z - pos.z), 1 - Math.exp(-14 * delta));
+                        }
+                        if (this.flyPhaseT > 0.55 && pos.y > 8.5 && t) {
+                            this.flyPhase = 'dive';
+                            this.flyTarget = t;
+                            sfx.playSwordSlash();
+                        }
+                        return { pose: P.flyCharge, rate: 12, capeAmp: 0.3 };
+                    }
+
+                    // Havadan kafa aşağı dalış: iniş noktasında alan hasarı
+                    if (this.flyPhase === 'dive') {
+                        let t = this.flyTarget;
+                        if (!t || t.isDead) { t = nearest(null); this.flyTarget = t; }
+                        if (!t) { nextPhase(); return { pose: P.dive, rate: 12, capeAmp: 0.3 }; }
+                        const tv = this._tv.set(t.mesh.position.x - pos.x, 0.9 - pos.y, t.mesh.position.z - pos.z);
+                        const dist = tv.length();
+                        const step = Math.min(60 * delta, dist);
+                        tv.normalize();
+                        pos.x = THREE.MathUtils.clamp(pos.x + tv.x * step, -lim, lim);
+                        pos.y += tv.y * step;
+                        pos.z = THREE.MathUtils.clamp(pos.z + tv.z * step, -lim, lim);
+                        this.mesh.rotation.y = Math.atan2(tv.x, tv.z);
+                        createSparks(pos.clone().add(new THREE.Vector3(0, 1.2, 0)), 0x66f0ff, 3);
+                        if (dist <= 2.2 || pos.y <= 1.0) {
+                            pos.y = Math.max(pos.y, 0.9);
+                            killAt(pos.x, pos.z, 6.0, 24);
+                            sfx.playAllyLanding();
+                            triggerScreenShake(22.0);
+                            createShockwaveRing(pos.x, pos.z);
+                            nextPhase();
+                        }
+                        return { pose: P.dive, rate: 14, capeAmp: 0.4 };
+                    }
+
+                    // Zincir: düşmanları art arda takip edip hepsini delip geç
+                    this.flyPhaseT -= delta;
+                    let t = this.flyTarget;
+                    if (!t || t.isDead || t.state === 'falling') { t = nearest(null); this.flyTarget = t; }
+                    if (!t) { nextPhase(); return { pose: P.fly, rate: 14, capeAmp: 0.4 }; }
+                    pos.y = THREE.MathUtils.lerp(pos.y, 0.5 + this.flightY(), 1 - Math.exp(-9 * delta));
+                    let dx = t.mesh.position.x - pos.x, dz = t.mesh.position.z - pos.z;
+                    const dl = Math.hypot(dx, dz) || 1;
+                    dx /= dl; dz /= dl;
+                    this.mesh.rotation.y = allyLerpAngle(this.mesh.rotation.y, Math.atan2(dx, dz), 1 - Math.exp(-18 * delta));
+                    const sp = 42 * delta;
+                    const nx = pos.x + dx * sp, nz = pos.z + dz * sp;
+                    if (!this.pierceBlocked(nx, nz)) { pos.x = nx; pos.z = nz; }
+                    else if (!this.pierceBlocked(nx, pos.z)) pos.x = nx;
+                    else if (!this.pierceBlocked(pos.x, nz)) pos.z = nz;
+                    else { nextPhase(); this.flyPhase = 'rise'; this.flyPhaseT = 0; }
+                    // Kılıç ucu önde: yoldaki herkes kesilir
+                    const k = killAt(pos.x + dx * 2.5, pos.z + dz * 2.5, 3.4, 22);
+                    if (k > 0) {
+                        this.chainKills += k;
+                        this.flyTarget = null;
+                        triggerScreenShake(8.0);
+                        const fp = pos.clone(); fp.y += 1.2;
+                        createLightningBolt(tipPos, fp, { width: 0.06, life: 0.15, branches: 1, levels: 3, glow: false, flash: false, ring: false });
+                    }
+                    if (this.flyPhaseT <= 0 || this.chainKills >= this.chainLeft) nextPhase();
+                    return { pose: P.fly, rate: 14, capeAmp: 0.4 };
+                }
+
+                // 5b. (eski) tek seferlik delip geçme
                 // Hazırlık: çömelir, kılıcı hedefe doğrultur ve enerji toplar
                 if (this.state === 'pierce_charge') {
                     this.chargeTimer -= delta;
@@ -6985,14 +7180,19 @@
                         return { pose: this.slashPose(this.slashType, p), rate: 30, capeAmp: 0.18 };
                     }
 
-                    // Her 7 normal hamleden sonra: uçarak delip geçme
-                    if (closestEnemy && this.normalSlashes >= 7 && minDist <= 40) {
+                    // Her 3 kılıç hamlesinden sonra: 15 sn boyunca uçarak saldırı
+                    if (closestEnemy && this.normalSlashes >= 3) {
                         this.normalSlashes = 0;
-                        this.state = 'pierce_charge';
-                        this.chargeTimer = 0.4;
-                        this.pierceTarget = closestEnemy;
+                        this.state = 'fly_assault';
+                        this.flyTimer = 15.0;
+                        this.flyPhase = 'rise';
+                        this.flyPhaseT = 0;
+                        this.flyTarget = null;
                         this.isRunning = false;
                         this.parts.bladeMat.emissiveIntensity = 3.5;
+                        sfx.playSwordSlash();
+                        triggerScreenShake(10.0);
+                        createShockwaveRing(this.mesh.position.x, this.mesh.position.z);
                         return { pose: P.flyCharge, rate: 12, capeAmp: 0.25 };
                     }
 
@@ -7754,6 +7954,12 @@
 
                 this.parts.head.userData = { enemy: this, isHead: true };
                 this.parts.torso.userData = { enemy: this, isHead: false };
+                // Kol ve bacaklar da vurulabilir (hasar %70)
+                this.limbBoxes = [];
+                [this.parts.leftArmPivot, this.parts.rightArmPivot, this.parts.leftLegPivot, this.parts.rightLegPivot].forEach(piv => {
+                    if (!piv) return;
+                    piv.traverse(m => { if (m.isMesh) { m.userData = { enemy: this, isHead: false, part: 'limb' }; this.limbBoxes.push(m); } });
+                });
             }
 
             takeDamage(amount, isHead, hitPoint) {
@@ -8255,6 +8461,19 @@
 
         touchLookZone.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            // Bakış alanı butonların üstünde kalırsa: dokunuş duraklat/silah butonuna denk geliyorsa onu tetikle
+            if (e.changedTouches.length > 0) {
+                const tt = e.changedTouches[0];
+                for (const bid of ['btn-touch-pause', 'btn-touch-weapon']) {
+                    const bEl = document.getElementById(bid);
+                    if (!bEl) continue;
+                    const r = bEl.getBoundingClientRect();
+                    if (r.width > 0 && tt.clientX >= r.left - 6 && tt.clientX <= r.right + 6 && tt.clientY >= r.top - 6 && tt.clientY <= r.bottom + 6) {
+                        bEl.dispatchEvent(new MouseEvent('click', { bubbles: false, cancelable: true }));
+                        return;
+                    }
+                }
+            }
             if (touchLookId === null && e.changedTouches.length > 0) {
                 const touch = e.changedTouches[0];
                 touchLookId = touch.identifier;
@@ -8535,14 +8754,15 @@
             if (navigator.vibrate) navigator.vibrate(15);
         }, { passive: false });
 
-        btnTouchPause.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (gameState === 'playing') pauseGame();
-        }, { passive: false });
-        btnTouchPause.addEventListener('click', (e) => {
-            if (gameState === 'playing') pauseGame();
-        });
+        {
+            let lastPauseTap = 0;
+            const doPause = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                const t = performance.now(); if (t - lastPauseTap < 400) return; lastPauseTap = t;
+                if (gameState === 'playing') pauseGame();
+            };
+            ['touchstart', 'touchend', 'pointerdown', 'click'].forEach(ev => btnTouchPause.addEventListener(ev, doPause, { passive: false }));
+        }
 
         /* ==========================================================================
            SHOOTING & COMBAT MECHANICS
@@ -8580,7 +8800,7 @@
             for (let enemy of enemies) {
                 if (!enemy.isDead && (enemy.state !== 'emerging' || enemy.mesh.position.y >= -1.0)) {
                     if (enemy.hitboxes) { for (const hb of enemy.hitboxes) { if (hb.userData.part === 'horse' && !enemy.horseAlive) continue; hitboxes.push(hb); } }
-                    else { hitboxes.push(enemy.parts.head); hitboxes.push(enemy.parts.torso); }
+                    else { hitboxes.push(enemy.parts.head); hitboxes.push(enemy.parts.torso); if (enemy.limbBoxes) enemy.limbBoxes.forEach(m => hitboxes.push(m)); }
                 }
             }
             for (let hp of healthPickups) {
@@ -8608,7 +8828,8 @@
 
                 if (enemy) {
                     const damage = isHead ? 150 : (currentWeapon === 'minigun' ? MINIGUN_DAMAGE : (currentWeapon === 'deagle' ? DEAGLE_DAMAGE : 45));
-                    enemy.takeDamage(damage, isHead, hit.point, hitTarget.userData.part);
+                    const dmgFinal = (!isHead && hitTarget.userData.part === 'limb') ? Math.round(damage * 0.7) : damage;
+                    enemy.takeDamage(dmgFinal, isHead, hit.point, hitTarget.userData.part);
                 }
                 createBulletTracer(muzzleWorldPos, hit.point);
             } else {
@@ -9594,6 +9815,7 @@
         }
 
         function startGame() {
+            try { if (sfx.ctx && sfx.ctx.state === 'suspended') sfx.ctx.resume(); } catch (e) {}
             sfx.init();
             enterFullscreenAndOrientation();
 
@@ -9696,7 +9918,11 @@
         }
 
         function pauseGame() {
+            if (gameState !== 'playing') return;
             gameState = 'paused';
+            // 🔇 Menüde araba/motor/korna sesi kalmasın: önce kapat, sonra tüm sesi askıya al (devam edince geri açılır)
+            try { if (sfx.engine) sfx.stopEngine(); if (sfx.stopHorn) sfx.stopHorn(); } catch (e) {}
+            setTimeout(() => { try { if (gameState === 'paused' && sfx.ctx && sfx.ctx.state === 'running') sfx.ctx.suspend(); } catch (e) {} }, 700);
             if (isAiming) setScopeState(false);
             if (document.exitPointerLock) document.exitPointerLock();
             document.getElementById('pause-screen').classList.remove('hidden');
@@ -9705,10 +9931,11 @@
 
         function resumeGame() {
             // Eğer duraklatmada harita değiştirildiyse o haritayı inşa et
-            if (currentMapName !== selectedMap) {
+            if (builtMapKey !== selectedMap) {
                 buildMap(selectedMap);
             }
             gameState = 'playing';
+            try { if (sfx.ctx && sfx.ctx.state === 'suspended') sfx.ctx.resume(); } catch (e) {}
             document.getElementById('pause-screen').classList.add('hidden');
             if (!isMobileTouchMode && canvas.requestPointerLock) {
                 canvas.requestPointerLock();
@@ -9717,6 +9944,7 @@
 
         function gameOver() {
             gameState = 'gameover';
+            try { if (sfx.engine) sfx.stopEngine(); if (sfx.stopHorn) sfx.stopHorn(); } catch (e) {}
             if (isAiming) setScopeState(false);
             if (document.exitPointerLock) document.exitPointerLock();
             sfx.playGameOver();
@@ -9738,6 +9966,13 @@
         document.getElementById('btn-start').addEventListener('click', startGame);
         document.getElementById('btn-restart').addEventListener('click', startGame);
         document.getElementById('btn-resume').addEventListener('click', resumeGame);
+
+        // ESC (ve Alt-Tab vb.) fare kilidini bırakınca oyun hemen duraklasın (tarayıcı ilk ESC'yi tuş olayı olarak göndermez)
+        document.addEventListener('pointerlockchange', () => {
+            if (!isMobileTouchMode && gameState === 'playing' && document.pointerLockElement !== canvas) pauseGame();
+        });
+        // Uygulama/sekme arka plana gidince otomatik duraklat
+        document.addEventListener('visibilitychange', () => { if (document.hidden && gameState === 'playing') pauseGame(); });
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
@@ -10370,6 +10605,7 @@
         // ---------- buildMap sarmalayıcı ----------
         function buildMap(mapType) {
             nwAnim = null;
+            builtMapKey = mapType;
             buildMapBase(mapType);
             try {
                 try { hdSetupSkyAndEnv(mapType); } catch (e) { console.warn('HD adım hatası', e); }
