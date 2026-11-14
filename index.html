@@ -1259,6 +1259,33 @@
         .hidden {
             display: none !important;
         }
+    
+        /* ===== MOBİL YERLEŞİM DÜZENİ: butonlar/kartlar üst üste binmesin ===== */
+        body.mobile-touch-mode .hud-bottom { justify-content: center; padding-left: 150px; padding-right: 250px; box-sizing: border-box; }
+        body.mobile-touch-mode .health-card { position: absolute; left: 24px; top: 78px; width: 150px; padding: 6px 10px; }
+        body.mobile-touch-mode .weapons-hud-group { gap: 6px; flex-wrap: nowrap; max-width: 100%; }
+        body.mobile-touch-mode .grenade-card { display: none !important; }
+        body.mobile-touch-mode .ally-card { padding: 4px 8px; gap: 6px; min-width: 0; }
+        body.mobile-touch-mode .ally-card .ally-tip,
+        body.mobile-touch-mode .ally-card .ally-title { display: none; }
+        body.mobile-touch-mode .ally-card .ally-icon { font-size: 18px; }
+        body.mobile-touch-mode .ammo-card { padding: 3px 9px; gap: 0; border-radius: 10px; }
+        body.mobile-touch-mode .ammo-icon { display: none; }
+        body.mobile-touch-mode .ammo-count { font-size: 16px; }
+        body.mobile-touch-mode .ammo-title { font-size: 8px; letter-spacing: 0.5px; }
+        body.mobile-touch-mode .touch-action-container { bottom: 12px; right: 14px; gap: 10px; }
+        body.mobile-touch-mode .secondary-buttons-col { grid-template-columns: repeat(3, auto); gap: 6px; }
+        body.mobile-touch-mode .health-numeric { white-space: nowrap; font-size: 14px; }
+        body.mobile-touch-mode .health-title { white-space: nowrap; }
+        body.mobile-touch-mode .ally-card .ally-numeric { font-size: 11px; padding: 2px 6px; white-space: nowrap; }
+        body.mobile-touch-mode .ally-card .ally-title-row { gap: 0; }
+        body.mobile-touch-mode .ammo-title { white-space: nowrap; font-size: 10px; }
+        @media (max-height: 520px) {
+            body.mobile-touch-mode .secondary-buttons-col .touch-btn { width: 46px; height: 46px; }
+            body.mobile-touch-mode .secondary-buttons-col .btn-icon { font-size: 17px; }
+            body.mobile-touch-mode .secondary-buttons-col .btn-lbl { font-size: 7px; }
+            body.mobile-touch-mode .fire-btn { width: 68px; height: 68px; }
+        }
     </style>
 </head>
 <body>
@@ -4699,7 +4726,8 @@
             color: 0xffaa22,
             transparent: true,
             opacity: 0,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            depthWrite: false   // görünmez düzlem derinlik yazıp arkasındaki lazer ışınını kesmesin
         });
         const muzzleFlash = new THREE.Mesh(muzzleFlashGeo, muzzleFlashMat);
         muzzleFlash.position.set(0, 0.03, -0.58);
@@ -4763,21 +4791,24 @@
         /* ==========================================================================
            🔫 SİLAH SİSTEMİ: Tüfek · Minigun · Altın Desert Eagle · Tesla Gun
            ========================================================================== */
-        const WEAPON_ORDER = ['rifle', 'minigun', 'deagle', 'tesla'];
+        const WEAPON_ORDER = ['rifle', 'minigun', 'deagle', 'tesla', 'laser'];
         const DEAGLE_HIP_POS = new THREE.Vector3(0.20, -0.20, -0.42);
         const DEAGLE_AIM_POS = new THREE.Vector3(0.0, -0.0715, -0.30); // arka iki çıkıntı + ön gez hizada
         const TESLA_HIP_POS = new THREE.Vector3(0.24, -0.23, -0.48);
         const TESLA_AIM_POS = new THREE.Vector3(0.0, -0.20, -0.44);
+        const LASER_HIP_POS = new THREE.Vector3(0.23, -0.22, -0.46);
+        const LASER_AIM_POS = new THREE.Vector3(0.0, -0.17, -0.42);
         const WEAPON_DEFS = {
             rifle:   { name: 'Tüfek',          icon: '🔫', muzzle: [0, 0.03, -0.58],  flash: 1.0, hip: DEFAULT_GUN_POS, aim: AIM_GUN_POS,   scope: true },
             minigun: { name: 'Minigun',        icon: '🔥', muzzle: [0, 0.0, -0.92],   flash: 1.35, hip: MG_HIP_POS,     aim: MG_AIM_POS,    scope: true },
             deagle:  { name: 'Desert Eagle',   icon: '🥇', muzzle: [0, 0.01, -0.345], flash: 1.7, hip: DEAGLE_HIP_POS, aim: DEAGLE_AIM_POS, scope: false },
-            tesla:   { name: 'Tesla Gun',      icon: '⚡', muzzle: [0, 0.03, -0.62],  flash: 0,   hip: TESLA_HIP_POS,  aim: TESLA_AIM_POS,  scope: false }
+            tesla:   { name: 'Tesla Gun',      icon: '⚡', muzzle: [0, 0.03, -0.62],  flash: 0,   hip: TESLA_HIP_POS,  aim: TESLA_AIM_POS,  scope: false },
+            laser:   { name: 'Lazer Silahı',   icon: '🔴', muzzle: [0, 0.005, -0.656], flash: 0,   hip: LASER_HIP_POS,  aim: LASER_AIM_POS,  scope: false }
         };
         const DEAGLE_FIRE_INTERVAL = 0.20;   // saniyede 5 mermi (tüfek ≈9)
         const DEAGLE_DAMAGE = 55;            // 100 canlı düşman: gövdeden 2 mermi
-        // Her roundda Tesla atış hakkı: 1-9. round: 3 · 10-19. round: 5 · 20. round: 7, sonra her roundda bir öncekinden +2 (21: 9, 22: 11 ...)
-        function teslaChargesFor(round) { return round < 10 ? 3 : (round < 20 ? 5 : 7 + 2 * (round - 20)); }
+        // Her roundda Tesla atış hakkı: 1-7. round: 3 · 8. rounddan itibaren sonsuza dek: 10
+        function teslaChargesFor(round) { return round <= 7 ? 3 : 10; }
         let teslaCharges = 3;
         function teslaStatusText() { return `⚡ ${teslaCharges}/${teslaChargesFor(roundNumber)}` + (shootCooldown > 0 ? ' ŞARJ' : ''); }
         const TESLA_COOLDOWN = 1.4;          // atışlar arası şarj süresi
@@ -4961,6 +4992,7 @@
                 c.style.color = '';
                 if (currentWeapon === 'minigun') { t.textContent = 'Minigun · Mermi'; c.textContent = String(minigunAmmo); c.style.color = minigunAmmo <= 100 ? '#ff4455' : ''; }
                 else if (currentWeapon === 'tesla') { t.textContent = 'Tesla Gun'; c.textContent = teslaStatusText(); c.style.color = teslaCharges <= 0 ? '#ff4455' : ''; teslaReadyShown = !(shootCooldown > 0); }
+                else if (currentWeapon === 'laser') { t.textContent = 'Lazer'; c.textContent = laserStatusText(); c.style.color = laserPct() <= 20 ? '#ff4455' : ''; }
                 else { t.textContent = 'Mühimmat · ' + d.name; c.textContent = '∞'; }
             }
             const bt = document.getElementById('btn-touch-weapon');
@@ -4976,6 +5008,8 @@
             minigunGroup.visible = (w === 'minigun');
             deagleGroup.visible = (w === 'deagle');
             teslaGroup.visible = (w === 'tesla');
+            laserGroup.visible = (w === 'laser');
+            laserStop();
             const d = WEAPON_DEFS[w];
             muzzleFlash.position.set(d.muzzle[0], d.muzzle[1], d.muzzle[2]);
             muzzleLight.position.set(d.muzzle[0], d.muzzle[1], d.muzzle[2] - 0.03);
@@ -5131,6 +5165,457 @@
                 if (first || q.idx % 6 === 0) sfx.playLightningThunder();
                 if (!q.enemy.isDead) q.enemy.die(false, q.enemy.state === 'falling', 'tesla', q.enemy.mesh.position.clone());
             }
+        }
+
+        /* ==========================================================================
+           🔴 LAZER SİLAHI — mühimmat yerine BATARYA. Ateş tuşu basılı tutuldukça kırmızı ışın çıkar.
+           - Işın yoldaki herkesi art arda delip geçer.
+           - Işın sabit bir noktada kalırsa: sadece delip geçer (delik açar, düşman yanar/yığılır)
+           - Silahı oynatarak (süpürerek) tutarsan: ışının geçtiği uzuvlar süpürme yönünde kopar
+           - Batarya: 1-10. round her round başı 15 sn · 11. rounddan itibaren 30 sn
+           ========================================================================== */
+        function laserBatteryFor(round) { return round <= 10 ? 15 : 30; }
+        let laserBattery = 15, laserEmptyShown = false, laserHudPct = -1, laserHitT = 0, laserMarkT = 0, laserGroundT = 0;
+        const laserPrevDir = new THREE.Vector3(), laserDirNow = new THREE.Vector3(), _lzCam = new THREE.Vector3();
+        let laserPrevValid = false;
+        function laserPct() { const mx = laserBatteryFor(roundNumber || 1); return Math.max(0, Math.min(100, Math.ceil(laserBattery / mx * 100))); }
+        function laserStatusText() { return `%${laserPct()}`; }
+        const LASER_MAX_LEN = 140;
+        const LASER_DPS = 320;             // gövdede saniyede hasar (100 can ≈ 0.31 sn)
+        const LASER_SWEEP_RATE = 0.12;      // rad/sn: bunun üstü "süpürme" sayılır
+
+        // ---------- Silah modeli ----------
+        const laserGroup = new THREE.Group(); laserGroup.visible = false; gunGroup.add(laserGroup);
+        const laserCells = [];
+        let laserLensMat = null, laserGlowSpr = null;
+        {
+            const white = new THREE.MeshStandardMaterial({ color: 0xe4e8ee, roughness: 0.28, metalness: 0.55 });
+            const gun = new THREE.MeshStandardMaterial({ color: 0x1b1f26, roughness: 0.4, metalness: 0.85 });
+            const mid = new THREE.MeshStandardMaterial({ color: 0x59616d, roughness: 0.35, metalness: 0.8 });
+            const redE = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff1010, emissiveIntensity: 1.4, roughness: 0.3 });
+            laserLensMat = new THREE.MeshBasicMaterial({ color: 0xff5a4a });
+            const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); laserGroup.add(m); return m; };
+            add(new THREE.BoxGeometry(0.078, 0.092, 0.46), white, 0, 0, -0.17);                         // ana gövde
+            add(new THREE.BoxGeometry(0.084, 0.03, 0.30), gun, 0, -0.04, -0.10);                        // alt panel
+            add(new THREE.BoxGeometry(0.05, 0.022, 0.40), gun, 0, 0.056, -0.15);                        // üst ray
+            add(new THREE.BoxGeometry(0.092, 0.07, 0.14), gun, 0, 0.0, 0.10);                           // arka batarya yuvası
+            add(new THREE.BoxGeometry(0.052, 0.15, 0.07), gun, 0, -0.12, 0.02, -0.28);                  // kabza
+            add(new THREE.BoxGeometry(0.018, 0.03, 0.02), redE, 0, -0.065, -0.07);                      // tetik
+            add(new THREE.CylinderGeometry(0.036, 0.042, 0.22, 16), mid, 0, 0.005, -0.50, Math.PI / 2); // odaklama namlusu
+            add(new THREE.CylinderGeometry(0.046, 0.046, 0.03, 16), gun, 0, 0.005, -0.40, Math.PI / 2);
+            add(new THREE.CylinderGeometry(0.044, 0.044, 0.014, 16), redE, 0, 0.005, -0.45, Math.PI / 2); // parlayan halkalar
+            add(new THREE.CylinderGeometry(0.040, 0.040, 0.014, 16), redE, 0, 0.005, -0.52, Math.PI / 2);
+            add(new THREE.CylinderGeometry(0.030, 0.034, 0.03, 16), gun, 0, 0.005, -0.625, Math.PI / 2); // namlu ucu
+            add(new THREE.CylinderGeometry(0.021, 0.021, 0.012, 16), laserLensMat, 0, 0.005, -0.642, Math.PI / 2); // ışıyan mercek
+            // Batarya seviye göstergesi: üst rayda 10 hücre (seviye düştükçe sönerler)
+            for (let i = 0; i < 10; i++) {
+                const m = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.011, 0.0285), new THREE.MeshBasicMaterial({ color: 0x30ff70 }));
+                m.position.set(0, 0.0735, -0.012 - i * 0.034); laserGroup.add(m); laserCells.push(m);
+            }
+            add(new THREE.BoxGeometry(0.004, 0.05, 0.12), redE, 0.0405, 0.0, -0.20);                    // yan kırmızı şerit
+            add(new THREE.BoxGeometry(0.004, 0.05, 0.12), redE, -0.0405, 0.0, -0.20);
+        }
+        function updateLaserCells() {
+            const lv = laserBattery / laserBatteryFor(roundNumber || 1);
+            const col = lv > 0.5 ? 0x30ff70 : (lv > 0.2 ? 0xffc030 : 0xff2a2a);
+            for (let i = 0; i < laserCells.length; i++) {
+                const on = lv > i / laserCells.length + 0.0001;
+                laserCells[i].material.color.setHex(on ? col : 0x1a1d22);
+            }
+        }
+
+        // ---------- Işın görseli ----------
+        const laserBeam = { grp: null };
+        function laserEnsureBeam() {
+            if (laserBeam.grp) return;
+            const g = new THREE.Group(); g.visible = false; g.renderOrder = 30;
+            const mk = (r, color, op) => {
+                const m = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 14, 1, true),
+                    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+                m.userData.r = r; m.renderOrder = 30; g.add(m); return m;
+            };
+            laserBeam.core = mk(0.010, 0xffffff, 1.0);
+            laserBeam.mid = mk(0.026, 0xff3a2a, 0.85);
+            laserBeam.glow = mk(0.05, 0xff1010, 0.34);
+            laserBeam.halo = mk(0.11, 0xff0000, 0.10);
+            const gt = getBoltGlowTex();
+            const sp = (color, sc) => { const s2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: gt, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })); s2.scale.setScalar(sc); s2.renderOrder = 31; g.add(s2); return s2; };
+            laserBeam.start = sp(0xff3322, 0.5);
+            laserBeam.end = sp(0xff6a3a, 1.4);
+            scene.add(g); laserBeam.grp = g;
+            // Işın, çizim ANINDA (kamera ve silah matrisleri güncel iken) namlu ucuna hizalanır → boşluk/gecikme olmaz
+            [laserBeam.core, laserBeam.mid, laserBeam.glow, laserBeam.halo, laserBeam.start, laserBeam.end].forEach(o => {
+                o.frustumCulled = false;
+                o.onBeforeRender = function (rdr, sc, cam) { laserBeamRefresh(rdr, cam); };
+            });
+            laserGlowSpr = new THREE.Sprite(new THREE.SpriteMaterial({ map: gt, color: 0xff2a1a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, fog: false }));
+            laserGlowSpr.position.set(0, 0.005, -0.66); laserGlowSpr.renderOrder = 23; laserGlowSpr.scale.setScalar(0.12); laserGroup.add(laserGlowSpr);
+        }
+        const _lzUp = new THREE.Vector3(0, 1, 0), _lzMid = new THREE.Vector3(), _lzQ = new THREE.Quaternion();
+        const _rfO = new THREE.Vector3(), _rfC = new THREE.Vector3(), _rfD = new THREE.Vector3(), _rfT = new THREE.Vector3(), _rfE = new THREE.Vector3();
+        function laserBeamRefresh(rdr, cam) {
+            if (!laserBeam.on || !laserBeam.grp) return;
+            const fr = rdr.info.render.frame;
+            if (laserBeam._fr === fr) return; laserBeam._fr = fr;
+            _rfO.setFromMatrixPosition(muzzleFlash.matrixWorld);
+            _rfC.setFromMatrixPosition(cam.matrixWorld);
+            _rfD.set(0, 0, -1).transformDirection(cam.matrixWorld);
+            _rfT.copy(_rfC).addScaledVector(_rfD, laserBeam.aimDist || 120);
+            const dir = _rfT.sub(_rfO).normalize();
+            let len = LASER_MAX_LEN;
+            if (dir.y < -0.001) len = Math.min(len, _rfO.y / -dir.y);
+            _rfE.copy(_rfO).addScaledVector(dir, len);
+            laserSetBeam(_rfO, _rfE, laserBeam.flick || 1);
+            [laserBeam.core, laserBeam.mid, laserBeam.glow, laserBeam.halo, laserBeam.start, laserBeam.end].forEach(o => { o.updateMatrix(); o.matrixWorld.copy(o.matrix); });
+        }
+        function laserSetBeam(a, b, flick) {
+            const dir = _lzMid.subVectors(b, a); const len = Math.max(0.01, dir.length()); dir.multiplyScalar(1 / len);
+            _lzQ.setFromUnitVectors(_lzUp, dir);
+            const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+            [laserBeam.core, laserBeam.mid, laserBeam.glow, laserBeam.halo].forEach((m, i) => {
+                const r = m.userData.r * (i === 0 ? 1 : flick);
+                m.position.copy(mid); m.quaternion.copy(_lzQ); m.scale.set(r, len, r);
+            });
+            laserBeam.start.position.copy(a); laserBeam.end.position.copy(b);
+        }
+
+        // ---------- Ses: tok vızıltı + cızırtı ----------
+        let _lzSnd = null;
+        function laserSoundStart() {
+            const ctx = sfx.ctx; if (!ctx || _lzSnd) return;
+            const now = ctx.currentTime;
+            const master = ctx.createGain(); master.gain.setValueAtTime(0.0001, now); master.gain.exponentialRampToValueAtTime(0.28, now + 0.08);
+            const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; lp.Q.value = 3;
+            const o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = 96;
+            const o2 = ctx.createOscillator(); o2.type = 'square'; o2.frequency.value = 192.6;
+            const o3 = ctx.createOscillator(); o3.type = 'sine'; o3.frequency.value = 780;
+            const g3 = ctx.createGain(); g3.gain.value = 0.18;
+            const lfo = ctx.createOscillator(); lfo.frequency.value = 38; const lg = ctx.createGain(); lg.gain.value = 18; lfo.connect(lg); lg.connect(o3.frequency);
+            const g1 = ctx.createGain(); g1.gain.value = 0.55; const g2 = ctx.createGain(); g2.gain.value = 0.25;
+            o1.connect(g1); o2.connect(g2); o3.connect(g3); g1.connect(lp); g2.connect(lp); g3.connect(lp); lp.connect(master);
+            // cızırtı (yanma sesi)
+            const nb = ctx.createBuffer(1, ctx.sampleRate * 1, ctx.sampleRate); const d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            const ns = ctx.createBufferSource(); ns.buffer = nb; ns.loop = true;
+            const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3200; bp.Q.value = 0.7;
+            const ng = ctx.createGain(); ng.gain.value = 0.06; ns.connect(bp); bp.connect(ng); ng.connect(master);
+            master.connect(sfx.master);
+            o1.start(now); o2.start(now); o3.start(now); lfo.start(now); ns.start(now);
+            _lzSnd = { master, nodes: [o1, o2, o3, lfo, ns], ng };
+        }
+        function laserSoundStop() {
+            const sn = _lzSnd; if (!sn) return; _lzSnd = null;
+            const ctx = sfx.ctx; const now = ctx.currentTime;
+            try { sn.master.gain.cancelScheduledValues(now); sn.master.gain.setValueAtTime(Math.max(0.0001, sn.master.gain.value), now); sn.master.gain.exponentialRampToValueAtTime(0.0001, now + 0.12); } catch (e) {}
+            sn.nodes.forEach(n => { try { n.stop(now + 0.15); } catch (e) {} });
+        }
+        function laserStop() {
+            laserSoundStop();
+            laserBeam.on = false;
+            if (laserBeam.grp) laserBeam.grp.visible = false;
+            if (laserGlowSpr) laserGlowSpr.visible = false;
+            laserPrevValid = false;
+            if (typeof currentWeapon !== 'undefined' && currentWeapon === 'laser') { try { muzzleLight.intensity = 0; } catch (e) {} }
+        }
+
+        // ---------- Uzuv koparma ----------
+        function laserSever(enemy, piv, dirW, hitPoint) {
+            if (!piv || !piv.visible) return false;
+            const p = enemy.parts;
+            const isLeg = (piv === p.leftLegPivot || piv === p.rightLegPivot);
+            const w = isLeg ? 0.32 : 0.26, h = isLeg ? 1.0 : 0.8, col = isLeg ? 0x222a36 : 0xd32f2f;
+            enemy.mesh.updateMatrixWorld(true);
+            const wp = new THREE.Vector3(); piv.getWorldPosition(wp);
+            const piece = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), new THREE.MeshStandardMaterial({ color: col, roughness: 0.7 }));
+            body.position.y = -h / 2; body.castShadow = true; piece.add(body);
+            const stumpMat = new THREE.MeshBasicMaterial({ color: 0xff7a1a });   // yanarak kesilmiş, parlayan kesit
+            const stump = new THREE.Mesh(new THREE.BoxGeometry(w + 0.012, 0.05, w + 0.012), stumpMat); piece.add(stump);
+            piece.position.copy(wp); piece.quaternion.copy(piv.getWorldQuaternion(new THREE.Quaternion()));
+            scene.add(piece);
+            piv.visible = false;
+            if (isLeg && !enemy.crawling) { enemy.crawling = true; enemy.speed *= 0.2; }
+            enemy.limbBoxes = (enemy.limbBoxes || []).filter(m => m.userData.pivot !== piv);
+            // süpürme yönünde fırlat
+            const v = dirW.clone(); v.y = Math.max(v.y, 0) * 0.6; if (v.lengthSq() < 1e-4) v.set(0, 0, 1); v.normalize().multiplyScalar(7 + Math.random() * 5); v.y += 3 + Math.random() * 3;
+            const av = new THREE.Vector3((Math.random() - 0.5) * 16, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 16);
+            createSparks(wp, 0xff7a1a, 22); createSparks(wp, 0xaa0010, 12);
+            let cool = 1.2;
+            corpses.push({
+                mesh: piece, life: 14,
+                update(dt) {
+                    cool -= dt; if (cool > 0) stumpMat.color.setRGB(1, 0.35 + 0.4 * Math.min(1, cool / 1.2), 0.1); else stumpMat.color.setHex(0x2a0a05);
+                    if (piece.position.y > 0.14 || v.y > 0) {
+                        v.y -= 24 * dt; piece.position.addScaledVector(v, dt);
+                        piece.rotation.x += av.x * dt; piece.rotation.y += av.y * dt; piece.rotation.z += av.z * dt;
+                        if (piece.position.y <= 0.14) { piece.position.y = 0.14; v.set(0, 0, 0); av.multiplyScalar(0); }
+                    }
+                }
+            });
+            sfx.playHit();
+            laserBloodJets.push({ piece, piv, host: enemy.mesh, t: 4.0, acc: 0 });
+            return true;
+        }
+
+        // Genel koparma: nesnenin kopyası parça olarak fırlar (süvarinin kolu, atın bacağı)
+        function laserSeverObj(host, obj, dirW, opts) {
+            if (!obj || !obj.visible) return false;
+            host.updateMatrixWorld(true);
+            const wp = new THREE.Vector3(); obj.getWorldPosition(wp);
+            const wq = obj.getWorldQuaternion(new THREE.Quaternion());
+            const piece = new THREE.Group();
+            const saved = []; obj.traverse(o => { saved.push([o, o.userData]); o.userData = {}; });   // userData'da dairesel referans var: clone() çökmesin
+            let cl; try { cl = obj.clone(true); } finally { saved.forEach(([o, u]) => { o.userData = u; }); }
+            cl.position.set(0, 0, 0); cl.quaternion.identity(); cl.visible = true; piece.add(cl);
+            piece.position.copy(wp); piece.quaternion.copy(wq); scene.add(piece);
+            obj.visible = false;
+            const v = dirW.clone(); v.y = Math.max(v.y, 0) * 0.6; if (v.lengthSq() < 1e-4) v.set(0, 0, 1); v.normalize().multiplyScalar(6 + Math.random() * 4); v.y += 3 + Math.random() * 3;
+            const av = new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 14);
+            createSparks(wp, 0xff7a1a, 22); createSparks(wp, 0xaa0010, 12);
+            corpses.push({ mesh: piece, life: 14, update(dt) {
+                if (piece.position.y > 0.14 || v.y > 0) {
+                    v.y -= 24 * dt; piece.position.addScaledVector(v, dt);
+                    piece.rotation.x += av.x * dt; piece.rotation.y += av.y * dt; piece.rotation.z += av.z * dt;
+                    if (piece.position.y <= 0.14) { piece.position.y = 0.14; v.set(0, 0, 0); av.multiplyScalar(0); }
+                }
+            } });
+            sfx.playHit();
+            laserBloodJets.push(Object.assign({ piece, piv: obj, host, t: 4.0, acc: 0 }, opts || {}));
+            return true;
+        }
+        // Temas: sadece küçük yanık delik (uzuv kopmaz)
+        function laserBurnMark(h) {
+            const o = h.object; if (!o || !h.face) return;
+            const ud = o.userData; const now = performance.now();
+            if ((ud._lzHoles || 0) >= 3 || now - (ud._lzHoleT || 0) < 300) return;
+            ud._lzHoles = (ud._lzHoles || 0) + 1; ud._lzHoleT = now;
+            const g = new THREE.Group();
+            g.add(new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), new THREE.MeshBasicMaterial({ color: 0x0d0200, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 })));
+            const ring = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.078, 14), new THREE.MeshBasicMaterial({ color: 0xff6a1a, transparent: true, opacity: 0.9, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+            g.add(ring);
+            const lp = o.worldToLocal(h.point.clone());
+            const n = h.face.normal.clone();
+            g.position.copy(lp).addScaledVector(n, 0.012);
+            g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+            o.add(g);
+            createSparks(h.point, 0xff7a1a, 6);
+        }
+
+        // ---------- Kan fışkırması: kopan uzvun ve gövdedeki kesik yerin damlaları ----------
+        const laserBloodJets = [], laserDrops = [], laserDecals = [];
+        const _lbGeo = new THREE.SphereGeometry(0.035, 5, 4);
+        const _lbMat = new THREE.MeshBasicMaterial({ color: 0xa8000f });
+        const _lbDecalGeo = new THREE.CircleGeometry(1, 10);
+        const _lbP = new THREE.Vector3(), _lbQ = new THREE.Quaternion(), _lbD = new THREE.Vector3(), _lbUp = new THREE.Vector3(0, 1, 0), _lbDown = new THREE.Vector3(0, -1, 0);
+        function laserEmitBlood(pos, axis, n) {
+            for (let i = 0; i < n; i++) {
+                const m = new THREE.Mesh(_lbGeo, _lbMat); m.position.copy(pos);
+                const sp = 2.5 + Math.random() * 3.5;
+                const v = axis.clone().multiplyScalar(sp); v.x += (Math.random() - 0.5) * 1.6; v.y += (Math.random() - 0.5) * 1.6; v.z += (Math.random() - 0.5) * 1.6;
+                m.scale.setScalar(0.7 + Math.random() * 0.9);
+                scene.add(m); laserDrops.push({ m, v, life: 1.6 });
+            }
+        }
+        function updateLaserBlood(delta) {
+            for (let i = laserBloodJets.length - 1; i >= 0; i--) {
+                const j = laserBloodJets[i];
+                j.t -= delta;
+                if (j.t <= 0 || !j.host.parent && !j.piece.parent) { laserBloodJets.splice(i, 1); continue; }
+                // kopan parçadan (kesit yüzü uzvun +Y yönüne bakar)
+                const pulse = 0.55 + 0.45 * Math.sin((4.0 - j.t) * 10);          // kalp atışı gibi zonklayan fışkırma
+                const rate = 90 * pulse * Math.min(1, j.t / 1.2);                  // son saniyede azalır
+                j.acc += rate * delta; const n = Math.floor(j.acc); j.acc -= n;
+                if (n <= 0) continue;
+                if (j.piece.parent) {
+                    j.piece.updateMatrixWorld(true);
+                    if (j.pieceOff) _lbP.copy(j.pieceOff).applyMatrix4(j.piece.matrixWorld); else _lbP.copy(j.piece.position);
+                    _lbD.copy(j.pieceDir || _lbUp).applyQuaternion(j.piece.quaternion); laserEmitBlood(_lbP, _lbD, Math.ceil(n / 2));
+                }
+                // gövdedeki kesik yerden (kol/bacak kökü, uzvun aşağı yönünün tersi değil, dışa doğru)
+                if (j.host.parent) {
+                    j.host.updateMatrixWorld(true);
+                    j.piv.updateMatrixWorld(true);
+                    if (j.bodyOff) _lbP.copy(j.bodyOff).applyMatrix4(j.piv.matrixWorld); else j.piv.getWorldPosition(_lbP);
+                    j.piv.getWorldQuaternion(_lbQ);
+                    _lbD.copy(j.bodyDir || _lbDown).applyQuaternion(_lbQ);
+                    laserEmitBlood(_lbP, _lbD, Math.ceil(n / 2));
+                }
+            }
+            for (let i = laserDrops.length - 1; i >= 0; i--) {
+                const d = laserDrops[i];
+                d.v.y -= 16 * delta; d.m.position.addScaledVector(d.v, delta); d.life -= delta;
+                if (d.m.position.y <= 0.03 || d.life <= 0) {
+                    if (d.m.position.y <= 0.06 && laserDecals.length < 140) {
+                        const dc = new THREE.Mesh(_lbDecalGeo, new THREE.MeshBasicMaterial({ color: 0x6e0009, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+                        dc.rotation.x = -Math.PI / 2; dc.position.set(d.m.position.x, 0.025, d.m.position.z); dc.scale.setScalar(0.07 + Math.random() * 0.12); scene.add(dc);
+                        laserDecals.push({ m: dc, life: 10 });
+                    }
+                    scene.remove(d.m); laserDrops.splice(i, 1);
+                }
+            }
+            for (let i = laserDecals.length - 1; i >= 0; i--) {
+                const dc = laserDecals[i]; dc.life -= delta;
+                if (dc.life < 2) dc.m.material.opacity = Math.max(0, dc.life / 2 * 0.85);
+                if (dc.life <= 0) { scene.remove(dc.m); dc.m.material.dispose(); laserDecals.splice(i, 1); }
+            }
+        }
+
+        // ---------- Ana güncelleme ----------
+        const laserRay = new THREE.Raycaster();
+        const _lzO = new THREE.Vector3(), _lzD = new THREE.Vector3(), _lzT = new THREE.Vector3(), _lzV = new THREE.Vector3(), _lzC = new THREE.Vector3(), _lzE = new THREE.Vector3(), _lzW = new THREE.Vector3();
+        function updateLaser(delta) {
+            const want = currentWeapon === 'laser' && isShooting && !isDriving && gameState === 'playing';
+            if (want && laserBattery <= 0) {
+                if (!laserEmptyShown) { laserEmptyShown = true; showAnnouncement('🔋 Lazer bataryası bitti — yeni roundda dolar'); }
+                laserStop(); return;
+            }
+            if (!want) { if (laserBeam.grp && laserBeam.grp.visible) laserStop(); return; }
+            laserEnsureBeam();
+            laserBattery = Math.max(0, laserBattery - delta);
+            updateLaserCells();
+            { const pc = laserPct(); if (pc !== laserHudPct) { laserHudPct = pc; updateWeaponHUD(); } }
+            laserSoundStart();
+
+            // Işın: namlu ucundan, nişangâhın baktığı noktaya doğru
+            scene.updateMatrixWorld();
+            muzzleFlash.getWorldPosition(_lzO);
+            camera.getWorldDirection(_lzD);
+            camera.getWorldPosition(_lzCam);
+            _lzT.copy(_lzCam).addScaledVector(_lzD, laserBeam.aimDist || 120);   // ışın, nişangâhın baktığı ilk düşmana yakınsar
+            const dir = laserDirNow.subVectors(_lzT, _lzO).normalize();
+            let len = LASER_MAX_LEN;
+            if (dir.y < -0.001) len = Math.min(len, _lzO.y / -dir.y);              // yere çarpınca biter
+            _lzE.copy(_lzO).addScaledVector(dir, len);
+            const flick = 0.85 + Math.random() * 0.35;
+            laserSetBeam(_lzO, _lzE, flick);
+            laserBeam.grp.visible = true; laserGlowSpr.visible = true; laserBeam.on = true; laserBeam.flick = flick;
+            laserBeam.start.scale.setScalar(0.35 * flick); laserBeam.end.scale.setScalar((0.9 + Math.random() * 0.7) * (dir.y < -0.001 ? 1 : 0.2));
+            laserGlowSpr.scale.setScalar(0.13 * flick); laserGlowSpr.material.opacity = 0.7 + Math.random() * 0.3;
+            muzzleLight.color.setHex(0xff2010); muzzleLight.intensity = 2.2 + Math.random() * 1.2;
+            gunRecoilZ = 0.008 + Math.random() * 0.01;
+
+            // Zeminde yanma izi kıvılcımı
+            laserGroundT -= delta;
+            if (dir.y < -0.001 && laserGroundT <= 0) { laserGroundT = 0.05; createSparks(_lzE, 0xff6a2a, 3); createSparks(_lzE, 0xffd080, 1); }
+
+            // Süpürme hızı (ışın yönünün açısal değişimi)
+            let sweepRate = 0; const sweepDir = _lzV.set(0, 0, 0);
+            if (laserPrevValid && delta > 1e-4) {
+                sweepDir.subVectors(_lzD, laserPrevDir);
+                sweepRate = sweepDir.length() / delta;
+                if (sweepDir.lengthSq() > 1e-12) sweepDir.normalize();
+            }
+            laserPrevDir.copy(_lzD); laserPrevValid = true;
+            const sweeping = sweepRate > LASER_SWEEP_RATE;
+            const sweepW = sweepDir.clone();
+
+            // Işının yakınındaki düşmanlar (hasar: nişangâh/kamera ışını — nişan aldığın yer neyse onu vurur)
+            laserBeam.aimDist = 120;
+            const boxes = [];
+            for (const e of enemies) {
+                if (e.isDead || (e.state === 'emerging' && e.mesh.position.y < -1.0)) continue;
+                _lzW.subVectors(e.mesh.position, _lzCam);
+                const t = _lzW.dot(_lzD); if (t < 0 || t > LASER_MAX_LEN + 3) continue;
+                _lzC.copy(_lzCam).addScaledVector(_lzD, t);
+                const rad = (e instanceof MountedArcher) ? 4.2 : 2.6;
+                if (Math.hypot(_lzC.x - e.mesh.position.x, _lzC.z - e.mesh.position.z) > rad || Math.abs(_lzC.y - (e.mesh.position.y + 1.2)) > 3.6) continue;
+                if (e.hitboxes) { for (const hb of e.hitboxes) { if (hb.userData.part === 'horse' && !e.horseAlive) continue; boxes.push(hb); } }
+                else { boxes.push(e.parts.head); boxes.push(e.parts.torso); if (e.limbBoxes) e.limbBoxes.forEach(m => boxes.push(m)); }
+            }
+            if (!boxes.length) return;
+            laserRay.set(_lzCam, _lzD); laserRay.far = LASER_MAX_LEN;
+            const hits = laserRay.intersectObjects(boxes, false);
+            if (!hits.length) return;
+            laserBeam.aimDist = Math.max(2, Math.min(120, hits[0].distance));
+
+            // Düşman başına grupla
+            const per = new Map();
+            for (const h of hits) {
+                const ud = h.object.userData || {};
+                const e = ud.enemy; if (!e || e.isDead) continue;
+                let r = per.get(e); if (!r) { r = { head: false, torso: false, limbs: new Set(), limbHits: [], horse: false, pt: h.point.clone(), dist: h.distance, first: ud.isHead ? 'head' : (ud.part === 'limb' ? 'limb' : 'body') }; per.set(e, r); }
+                if (ud.isHead) r.head = true; else if (ud.part === 'limb') { if (ud.pivot && !r.limbs.has(ud.pivot)) { r.limbs.add(ud.pivot); r.limbHits.push(h); } } else if (ud.part === 'horse') r.horse = true; else r.torso = true;
+            }
+            laserHitT -= delta;
+            const doFx = laserHitT <= 0, doMark = laserMarkT <= 0;
+            if (doFx) laserHitT = 0.05;
+            if (doMark) laserMarkT = 0.16;
+            laserMarkT -= delta;
+            // Işın önce bir kola/bacağa değdiyse: yalnızca uzuv teması say (arkadaki gövde/kafa yok sayılır)
+            per.forEach(r => { if (r.first === 'limb') { r.head = false; r.torso = false; } });
+            // Oyuncu yürüyor mu? (yalnızca süvari/at kuralında kullanılır)
+            const playerMoving = keys.forward || keys.backward || keys.left || keys.right || (isMobileTouchMode && (touchMoveVector.x !== 0 || touchMoveVector.y !== 0));
+            const NECK = new THREE.Vector3(0, -0.42, 0);
+            const cutMode = sweeping || playerMoving;   // yürüyorsun ya da nişan oynuyor
+            per.forEach((r, e) => {
+                if (doFx) createSparks(r.pt, 0xff5a2a, 4);
+                const isArcher = (e instanceof MountedArcher);
+                const fling = sweeping ? sweepW : dir;   // süpürürken süpürme yönünde, sabitken ışın yönünde fırlar
+                if (!isArcher) {
+                    // Kol ve bacaklar: oyuncu tamamen hareketsiz olsa bile kopar (düşman ölmez)
+                    let cut = 0; r.limbs.forEach(piv => { if (laserSever(e, piv, fling, r.pt)) cut++; });
+                    if (cut) e._lzNoKill = performance.now() + 1300;   // uzuv kopunca düşman yere kapanır: aynı ışın gövde/kafaya değip delik açmasın
+                    if ((e._lzNoKill || 0) > performance.now()) { r.head = false; r.torso = false; }
+                    if (false) {
+                    } else if (r.head || r.torso) {
+                        if (cutMode) {
+                            // Hareket/nişan değişirken: kafa kopar, gövde ikiye bölünür
+                            if (r.head) {
+                                laserSeverObj(e.mesh, e.parts.head, fling, { pieceOff: NECK, pieceDir: _lbDown, bodyOff: NECK, bodyDir: _lbUp });
+                                e.die(true, e.state === 'falling', 'laserCut', r.pt);
+                                createFloatingText(r.pt, 'KAFA KOPTU!', true);
+                            } else {
+                                e.die(false, e.state === 'falling', 'sword', r.pt);   // gövde ikiye bölünür
+                                createSparks(r.pt, 0xff7a1a, 26); createSparks(r.pt, 0xaa0010, 16);
+                                createFloatingText(r.pt, 'İKİYE BÖLÜNDÜ!', false);
+                            }
+                        } else if (!r.head && (e._lzNoKill || 0) > performance.now()) {
+                            // az önce uzvu koptu: bu karede gövdeyi delme
+                        } else {
+                            // Sabit nişan: delip geçer, delik açar → anında ölür
+                            e.die(r.head, e.state === 'falling', 'laser', r.pt);
+                            createFloatingText(r.pt, r.head ? 'KAFA! LAZER' : 'LAZER', r.head);
+                        }
+                    } else if (cut) {
+                        createFloatingText(r.pt, 'KOPTU!', false);
+                        // Yerde sürünürken iki kol da giderse ölür
+                        const pp = e.parts;
+                        if (e.crawling && pp.leftArmPivot && pp.rightArmPivot && !pp.leftArmPivot.visible && !pp.rightArmPivot.visible) {
+                            e.die(false, false, 'laser', r.pt); createFloatingText(r.pt, 'LAZER', false);
+                        }
+                    }
+                } else {
+                    if (cutMode && (r.head || r.torso)) {
+                        // Hareket halinde süvarinin kafası kopar / gövdesi ikiye bölünür
+                        if (r.head) laserSeverObj(e.mesh, e.riderParts.head, fling, { pieceOff: NECK, pieceDir: _lbDown, bodyOff: NECK, bodyDir: _lbUp });
+                        e.die(!!r.head, e.state === 'falling', 'laserCut', r.pt);
+                        createSparks(r.pt, 0xff7a1a, 22);
+                        createFloatingText(r.pt, r.head ? 'KAFA KOPTU!' : 'İKİYE BÖLÜNDÜ!', !!r.head);
+                    } else if (!cutMode) {
+                        // Sabit: delip geçer → süvari ya da at ölür
+                        if (r.head || r.torso) { e.die(r.head, e.state === 'falling', 'laser', r.pt); createFloatingText(r.pt, r.head ? 'KAFA! LAZER' : 'LAZER', r.head); }
+                        else if (r.horse && e.horseAlive) { e.takeDamage(99999, false, r.pt, 'horse'); createFloatingText(r.pt, 'AT! LAZER', false); }
+                    } else {
+                        if (r.head || r.torso) {
+                            // Yürürken: süvarinin kolu kopar (yayı kullanamaz)
+                            const rp = e.riderParts, arms = [rp.rArm, rp.lArm].filter(a => a && a.visible);
+                            if (arms.length) {
+                                let best = arms[0], bd = 1e9; const tmp = new THREE.Vector3();
+                                arms.forEach(a => { a.getWorldPosition(tmp); const d = tmp.distanceTo(r.pt); if (d < bd) { bd = d; best = a; } });
+                                if (laserSeverObj(e.mesh, best, fling)) { e.shootT = 1e9; createFloatingText(r.pt, 'KOL KOPTU!', false); }
+                            }
+                        } else if (r.horse && e.horseAlive) {
+                            const legs = e.horse.legs.filter(l => l.visible);
+                            if (legs.length) {
+                                let best = legs[0], bd = 1e9; const tmp = new THREE.Vector3();
+                                legs.forEach(l => { l.getWorldPosition(tmp); const d = tmp.distanceTo(r.pt); if (d < bd) { bd = d; best = l; } });
+                                laserSeverObj(e.mesh, best, fling);
+                                e.horseDown(); createFloatingText(r.pt, 'AT BACAĞI KOPTU!', false);
+                            }
+                        }
+                    }
+                }
+            });
+            if (doMark && per.size) showHitmarker(false);
         }
 
         // Fare tekerleği: silah değiştir (yukarı/aşağı), yalnızca oyun içinde fare kilitliyken
@@ -7958,7 +8443,7 @@
                 this.limbBoxes = [];
                 [this.parts.leftArmPivot, this.parts.rightArmPivot, this.parts.leftLegPivot, this.parts.rightLegPivot].forEach(piv => {
                     if (!piv) return;
-                    piv.traverse(m => { if (m.isMesh) { m.userData = { enemy: this, isHead: false, part: 'limb' }; this.limbBoxes.push(m); } });
+                    piv.traverse(m => { if (m.isMesh) { m.userData = { enemy: this, isHead: false, part: 'limb', pivot: piv }; this.limbBoxes.push(m); } });
                 });
             }
 
@@ -7996,6 +8481,7 @@
             }
 
             die(wasHeadshot, isAirShot, deathType = 'bullet', hitPoint = null) {
+                if (this.crawling) { this.crawling = false; this.mesh.lookAt(camera.position.x, 0, camera.position.z); this.mesh.position.y = 0; }
                 this.isDead = true;
                 sfx.playEnemyDeath();
                 kills++;
@@ -8027,7 +8513,7 @@
                     spawnCarImpactCorpse(this.mesh, this.parts, hitPoint);
                 } else {
                     // Kurşunla vurulduğunda kurşun iziyle yere yığılır
-                    spawnCollapsingCorpse(this.mesh, hitPoint, wasHeadshot, deathType === 'bullet');
+                    spawnCollapsingCorpse(this.mesh, hitPoint, wasHeadshot, deathType === 'bullet' || deathType === 'laser');
                 }
 
                 if (Math.random() < 0.18) {
@@ -8085,6 +8571,7 @@
                     return;
                 }
 
+                if (!this.crawling && ((this.parts.leftLegPivot && !this.parts.leftLegPivot.visible) || (this.parts.rightLegPivot && !this.parts.rightLegPivot.visible))) { this.crawling = true; this.speed *= 0.2; }
                 if (this.state === 'running') {
                     // Hedef: Eğer müttefik (Şampiyon) sahada ve yerdeyse, düşmanlar oyuncuyu BIRAKIP şampiyona saldırsın!
                     let targetPos;
@@ -8097,6 +8584,7 @@
                     }
 
                     this.mesh.lookAt(targetPos.x, 0, targetPos.z);
+                    if (this.crawling) { this.mesh.rotateX(1.35); this.mesh.position.y = 0.3; } // bacağı kopan: yüzüstü sürünür
 
                     const toTarget = new THREE.Vector3().subVectors(targetPos, this.mesh.position);
                     toTarget.y = 0;
@@ -8164,6 +8652,14 @@
                     this.parts.rightLegPivot.rotation.x = legStride;
 
                     this.parts.head.position.y = 2.05 + Math.abs(Math.sin(this.animTime * 2)) * 0.06;
+                    if (this.crawling) { // kollarıyla ileri çekerek sürünme
+                        const cs = Math.sin(this.animTime * 0.7);
+                        this.parts.leftArmPivot.rotation.x = Math.PI * 0.88 + cs * 0.5;
+                        this.parts.rightArmPivot.rotation.x = Math.PI * 0.88 - cs * 0.5;
+                        this.parts.leftLegPivot.rotation.x = 0.1 + cs * 0.15;
+                        this.parts.rightLegPivot.rotation.x = 0.1 - cs * 0.15;
+                        this.parts.head.position.y = 2.05;
+                    }
 
                     // Saldırı: Şampiyona veya Oyuncuya
                     if (allyChampion && allyChampion.active && allyChampion.state !== 'descending' && allyChampion.state !== 'departing') {
@@ -8772,6 +9268,7 @@
         function shootWeapon() {
             if (shootCooldown > 0 || gameState !== 'playing' || isDriving) return;
             if (currentWeapon === 'tesla') { fireTesla(); return; }
+            if (currentWeapon === 'laser') return; // lazer: updateLaser() her karede sürekli ışın üretir
             const isMG = currentWeapon === 'minigun';
             if (isMG) {
                 if (minigunAmmo <= 0) { setWeapon('rifle', true); showAnnouncement('🔫 Minigun mermisi bitti — tüfeğe geçildi'); return; }
@@ -9483,9 +9980,9 @@
             archersToSpawn = n >= 3 ? Math.min(4, 1 + Math.floor((n - 3) / 2)) : 0;
             roundArcherTimer = 6 + Math.random() * 6;
             roundOverlay(null);
-            teslaCharges = teslaChargesFor(n); updateWeaponHUD();
+            teslaCharges = teslaChargesFor(n); laserBattery = laserBatteryFor(n); laserEmptyShown = false; updateWeaponHUD();
             let msg = `ROUND ${n} BAŞLADI!`;
-            msg += ` ⚡ Tesla: ${teslaCharges} atış`;
+            msg += ` ⚡ Tesla: ${teslaCharges} atış · 🔴 Lazer: ${laserBatteryFor(n)}sn`;
             if (n % MINIGUN_REWARD_EVERY === 0) {
                 minigunAmmo += MINIGUN_AMMO_PER_REWARD; updateWeaponHUD();
                 msg += ` 🔫 +${MINIGUN_AMMO_PER_REWARD} MİNİGUN MERMİSİ!`;
@@ -9705,7 +10202,7 @@
                 shootCooldown -= delta; if (shootCooldown < -0.1) shootCooldown = -0.1;
 
                 if (isShooting) { let guard = 0; do { shootWeapon(); } while (currentWeapon === 'minigun' && isShooting && shootCooldown <= 0 && ++guard < 3); }
-                updateMuzzleFx(delta); updateTeslaQueue(delta); updateTeslaIdle(delta);
+                updateMuzzleFx(delta); updateTeslaQueue(delta); updateTeslaIdle(delta); updateLaserBlood(delta);
                 // Minigun namlusu: ateş ederken hızla döner, bırakınca yavaşlar
                 {
                     const want = (currentWeapon === 'minigun' && isShooting && minigunAmmo > 0) ? 42 : 0;
@@ -9714,6 +10211,7 @@
                 }
 
                 updatePlayerMovement(delta);
+                updateLaser(delta); // kamera ve silah konumu güncellendikten SONRA: ışın tam namlu ucundan çıkar
                 updateCarPhysics(delta);
                 {
                     const ch = document.getElementById('crosshair');
@@ -9877,7 +10375,7 @@
             updateGrenadeHUD();
 
             // Silahları sıfırla
-            minigunAmmo = MINIGUN_START_AMMO; minigunSpin = 0; teslaQueue.length = 0; teslaCharges = teslaChargesFor(1);
+            minigunAmmo = MINIGUN_START_AMMO; minigunSpin = 0; teslaQueue.length = 0; teslaCharges = teslaChargesFor(1); laserBattery = laserBatteryFor(1); laserStop(); laserBloodJets.length = 0;
             setWeapon('rifle', true);
 
             // Baltalı yardımcıyı sıfırla
@@ -9920,6 +10418,7 @@
         function pauseGame() {
             if (gameState !== 'playing') return;
             gameState = 'paused';
+            laserStop();
             // 🔇 Menüde araba/motor/korna sesi kalmasın: önce kapat, sonra tüm sesi askıya al (devam edince geri açılır)
             try { if (sfx.engine) sfx.stopEngine(); if (sfx.stopHorn) sfx.stopHorn(); } catch (e) {}
             setTimeout(() => { try { if (gameState === 'paused' && sfx.ctx && sfx.ctx.state === 'running') sfx.ctx.suspend(); } catch (e) {} }, 700);
@@ -9944,6 +10443,7 @@
 
         function gameOver() {
             gameState = 'gameover';
+            laserStop();
             try { if (sfx.engine) sfx.stopEngine(); if (sfx.stopHorn) sfx.stopHorn(); } catch (e) {}
             if (isAiming) setScopeState(false);
             if (document.exitPointerLock) document.exitPointerLock();
